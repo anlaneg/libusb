@@ -357,12 +357,12 @@ struct libusb_context {
 	usbi_timer_t timer;
 #endif
 
-	struct list_head usb_devs;
+	struct list_head usb_devs;/*用于串连所有usb设备*/
 	usbi_mutex_t usb_devs_lock;
 
 	/* A list of open handles. Backends are free to traverse this if required.
 	 */
-	struct list_head open_devs;
+	struct list_head open_devs;/*用于串连已打开的设备*/
 	usbi_mutex_t open_devs_lock;
 
 	/* A list of registered hotplug callbacks */
@@ -499,16 +499,17 @@ struct libusb_device {
 	usbi_atomic_t refcnt;
 
 	struct libusb_context *ctx;
-	struct libusb_device *parent_dev;
+	struct libusb_device *parent_dev;/*指向父设备*/
 
-	uint8_t bus_number;
+	uint8_t bus_number;/*设备bus信息*/
 	uint8_t port_number;
-	uint8_t device_address;
+	uint8_t device_address;/*设备地址信息*/
 	enum libusb_speed speed;
 
 	struct list_head list;
 	unsigned long session_data;
 
+	/*usb的描述信息*/
 	struct libusb_device_descriptor device_descriptor;
 	usbi_atomic_t attached;
 };
@@ -636,6 +637,7 @@ struct usbi_descriptor_header {
 	uint8_t  bDescriptorType;
 } LIBUSB_PACKED;
 
+/*usb设备描述信息*/
 struct usbi_device_descriptor {
 	uint8_t  bLength;
 	uint8_t  bDescriptorType;
@@ -650,13 +652,13 @@ struct usbi_device_descriptor {
 	uint8_t  iManufacturer;
 	uint8_t  iProduct;
 	uint8_t  iSerialNumber;
-	uint8_t  bNumConfigurations;
+	uint8_t  bNumConfigurations;/*有多少条配置（见usbi_configuration_descriptor结构）*/
 } LIBUSB_PACKED;
 
 struct usbi_configuration_descriptor {
 	uint8_t  bLength;
 	uint8_t  bDescriptorType;
-	uint16_t wTotalLength;
+	uint16_t wTotalLength;/*配置描述符总长度*/
 	uint8_t  bNumInterfaces;
 	uint8_t  bConfigurationValue;
 	uint8_t  iConfiguration;
@@ -890,8 +892,8 @@ static inline void *usbi_get_transfer_priv(struct usbi_transfer *itransfer)
  * eliminating the need for a list node in the libusb_device structure
  * itself. */
 struct discovered_devs {
-	size_t len;
-	size_t capacity;
+	size_t len;/*当前实际占用的长度*/
+	size_t capacity;/*提供的容量*/
 	struct libusb_device *devices[ZERO_SIZED_ARRAY];
 };
 
@@ -1456,6 +1458,7 @@ extern const struct usbi_os_backend usbi_backend;
 #define for_each_context(c) \
 	for_each_helper(c, &active_contexts_list, struct libusb_context)
 
+/*遍历系统中所有识别的usb设备*/
 #define for_each_device(ctx, d) \
 	for_each_helper(d, &(ctx)->usb_devs, struct libusb_device)
 

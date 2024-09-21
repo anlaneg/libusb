@@ -589,7 +589,7 @@ struct libusb_device_descriptor {
 	uint8_t  iSerialNumber;
 
 	/** Number of possible configurations */
-	uint8_t  bNumConfigurations;
+	uint8_t  bNumConfigurations;/*配置数目*/
 };
 
 /** \ingroup libusb_desc

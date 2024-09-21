@@ -194,6 +194,7 @@ static void *linux_udev_event_thread_main(void *arg)
 		}
 		if (fds[1].revents) {
 			usbi_mutex_static_lock(&linux_hotplug_lock);
+			/*收取udev消息，并处理*/
 			udev_dev = udev_monitor_receive_device(udev_monitor);
 			if (udev_dev)
 				udev_hotplug_event(udev_dev);
@@ -311,6 +312,7 @@ void linux_udev_hotplug_poll(void)
 
 	usbi_mutex_static_lock(&linux_hotplug_lock);
 	do {
+		/*监听udev事件来增加device*/
 		udev_dev = udev_monitor_receive_device(udev_monitor);
 		if (udev_dev) {
 			usbi_dbg(NULL, "Handling hotplug event from hotplug_poll");

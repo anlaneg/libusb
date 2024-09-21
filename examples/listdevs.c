@@ -21,6 +21,7 @@
 
 #include "libusb.h"
 
+/*显示所有usb设备*/
 static void print_devs(libusb_device **devs)
 {
 	libusb_device *dev;
@@ -28,6 +29,7 @@ static void print_devs(libusb_device **devs)
 	uint8_t path[8]; 
 
 	while ((dev = devs[i++]) != NULL) {
+		/*取此设备描述信息*/
 		struct libusb_device_descriptor desc;
 		int r = libusb_get_device_descriptor(dev, &desc);
 		if (r < 0) {
@@ -35,12 +37,14 @@ static void print_devs(libusb_device **devs)
 			return;
 		}
 
+		/*显示vendor及product*/
 		printf("%04x:%04x (bus %d, device %d)",
 			desc.idVendor, desc.idProduct,
 			libusb_get_bus_number(dev), libusb_get_device_address(dev));
 
 		r = libusb_get_port_numbers(dev, path, sizeof(path));
 		if (r > 0) {
+			/*显示path*/
 			printf(" path: %d", path[0]);
 			for (j = 1; j < r; j++)
 				printf(".%d", path[j]);
@@ -59,6 +63,7 @@ int main(void)
 	if (r < 0)
 		return r;
 
+	/*获取到所有usb device list*/
 	cnt = libusb_get_device_list(NULL, &devs);
 	if (cnt < 0){
 		libusb_exit(NULL);

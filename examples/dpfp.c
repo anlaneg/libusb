@@ -607,7 +607,7 @@ int main(void)
 		exit(1);
 	}
 
-	r = find_dpfp_device();
+	r = find_dpfp_device();/*打dpfp设备，并设置devh*/
 	if (r < 0) {
 		fprintf(stderr, "Could not find/open device\n");
 		goto out;

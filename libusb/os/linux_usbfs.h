@@ -193,8 +193,10 @@ static inline void linux_stop_event_monitor(void)
 static inline void linux_hotplug_poll(void)
 {
 #if defined(HAVE_LIBUDEV)
+	/*通过udev*/
 	linux_udev_hotplug_poll();
 #elif !defined(__ANDROID__)
+	/*通过netlink*/
 	linux_netlink_hotplug_poll();
 #endif
 }

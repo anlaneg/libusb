@@ -97,6 +97,7 @@ int linux_netlink_start_event_monitor(void)
 	int opt = 1;
 	int ret;
 
+	/*创建netlink socket,关注uevent*/
 	linux_netlink_socket = socket(PF_NETLINK, socktype, NETLINK_KOBJECT_UEVENT);
 	if (linux_netlink_socket == -1 && errno == EINVAL) {
 		usbi_dbg(NULL, "failed to create netlink socket of type %d, attempting SOCK_RAW", socktype);
@@ -113,6 +114,7 @@ int linux_netlink_start_event_monitor(void)
 	if (ret == -1)
 		goto err_close_socket;
 
+	/*组播关注*/
 	ret = bind(linux_netlink_socket, (struct sockaddr *)&sa_nl, sizeof(sa_nl));
 	if (ret == -1) {
 		usbi_err(NULL, "failed to bind netlink socket, errno=%d", errno);
@@ -131,6 +133,7 @@ int linux_netlink_start_event_monitor(void)
 		goto err_close_socket;
 	}
 
+	/*创建线程处理netlink event消息*/
 	ret = pthread_create(&libusb_linux_event_thread, NULL, linux_netlink_event_thread_main, NULL);
 	if (ret != 0) {
 		usbi_err(NULL, "failed to create netlink event thread (%d)", ret);
@@ -186,7 +189,7 @@ static const char *netlink_message_parse(const char *buffer, size_t len, const c
 }
 
 /* parse parts of netlink message common to both libudev and the kernel */
-static int linux_netlink_parse(const char *buffer, size_t len, int *detached,
+static int linux_netlink_parse(const char *buffer, size_t len, int *detached/*出参，是否设备移除*/,
 	const char **sys_name, uint8_t *busnum, uint8_t *devaddr)
 {
 	const char *tmp, *slash;
@@ -202,8 +205,10 @@ static int linux_netlink_parse(const char *buffer, size_t len, int *detached,
 	if (!tmp) {
 		return -1;
 	} else if (strcmp(tmp, "remove") == 0) {
+		/*设备移除*/
 		*detached = 1;
 	} else if (strcmp(tmp, "add") != 0) {
+		/*不认识的action*/
 		usbi_dbg(NULL, "unknown device action %s", tmp);
 		return -1;
 	}
@@ -212,24 +217,26 @@ static int linux_netlink_parse(const char *buffer, size_t len, int *detached,
 	tmp = netlink_message_parse(buffer, len, "SUBSYSTEM");
 	if (!tmp || strcmp(tmp, "usb") != 0) {
 		/* not usb. ignore */
-		return -1;
+		return -1;/*忽略掉非usb的消息*/
 	}
 
 	/* check that this is an actual usb device */
 	tmp = netlink_message_parse(buffer, len, "DEVTYPE");
 	if (!tmp || strcmp(tmp, "usb_device") != 0) {
 		/* not usb. ignore */
-		return -1;
+		return -1;/*忽略掉非usb设备*/
 	}
 
 	tmp = netlink_message_parse(buffer, len, "BUSNUM");
 	if (tmp) {
+		/*解析use busnum*/
 		*busnum = (uint8_t)(strtoul(tmp, NULL, 10) & 0xff);
 		if (errno) {
 			errno = 0;
 			return -1;
 		}
 
+		/*解析devnum*/
 		tmp = netlink_message_parse(buffer, len, "DEVNUM");
 		if (NULL == tmp)
 			return -1;
@@ -252,12 +259,14 @@ static int linux_netlink_parse(const char *buffer, size_t len, int *detached,
 		if (!slash)
 			return -1;
 
+		/*解析busnum*/
 		*busnum = (uint8_t)(strtoul(slash - 3, NULL, 10) & 0xff);
 		if (errno) {
 			errno = 0;
 			return -1;
 		}
 
+		/*解析devaddr*/
 		*devaddr = (uint8_t)(strtoul(slash + 1, NULL, 10) & 0xff);
 		if (errno) {
 			errno = 0;
@@ -267,6 +276,7 @@ static int linux_netlink_parse(const char *buffer, size_t len, int *detached,
 		return 0;
 	}
 
+	/*解析sys name*/
 	tmp = netlink_message_parse(buffer, len, "DEVPATH");
 	if (!tmp)
 		return -1;
@@ -298,7 +308,7 @@ static int linux_netlink_read_message(void)
 	};
 
 	/* read netlink message */
-	len = recvmsg(linux_netlink_socket, &msg, 0);
+	len = recvmsg(linux_netlink_socket, &msg, 0);/*读消息*/
 	if (len == -1) {
 		if (errno != EAGAIN && errno != EINTR)
 			usbi_err(NULL, "error receiving message from netlink, errno=%d", errno);
@@ -328,7 +338,8 @@ static int linux_netlink_read_message(void)
 		return -1;
 	}
 
-	r = linux_netlink_parse(msg_buffer, (size_t)len, &detached, &sys_name, &busnum, &devaddr);
+	/*解析消息获知sys_name,busnum,devaddr*/
+	r = linux_netlink_parse(msg_buffer, (size_t)len, &detached/*是否设备移除*/, &sys_name, &busnum, &devaddr);
 	if (r)
 		return r;
 
@@ -337,8 +348,10 @@ static int linux_netlink_read_message(void)
 
 	/* signal device is available (or not) to all contexts */
 	if (detached)
+		/*设备移除*/
 		linux_device_disconnected(busnum, devaddr);
 	else
+		/*设备添加*/
 		linux_hotplug_enumerate(busnum, devaddr, sys_name);
 
 	return 0;
@@ -357,6 +370,7 @@ static void *linux_netlink_event_thread_main(void *arg)
 	UNUSED(arg);
 
 #if defined(HAVE_PTHREAD_SETNAME_NP)
+	/*更新线程名称*/
 	r = pthread_setname_np(pthread_self(), "libusb_event");
 	if (r)
 		usbi_warn(NULL, "failed to set hotplug event thread name, error=%d", r);
@@ -378,6 +392,7 @@ static void *linux_netlink_event_thread_main(void *arg)
 			break;
 		}
 		if (fds[1].revents) {
+			/*收到读事件*/
 			usbi_mutex_static_lock(&linux_hotplug_lock);
 			linux_netlink_read_message();
 			usbi_mutex_static_unlock(&linux_hotplug_lock);

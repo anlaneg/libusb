@@ -90,7 +90,7 @@ static int usbdev_names = 0;
 static unsigned int max_iso_packet_len = 0;
 
 /* is sysfs available (mounted) ? */
-static int sysfs_available = -1;
+static int sysfs_available = -1;/*标记sysfs是否有效*/
 
 /* how many times have we initted (and not exited) ? */
 static int init_count = 0;
@@ -113,7 +113,7 @@ struct kernel_version {
 
 struct config_descriptor {
 	struct usbi_configuration_descriptor *desc;
-	size_t actual_len;
+	size_t actual_len;/*记录desc的实际长度*/
 };
 
 struct linux_context_priv {
@@ -122,15 +122,15 @@ struct linux_context_priv {
 };
 
 struct linux_device_priv {
-	char *sysfs_dir;
-	void *descriptors;
-	size_t descriptors_len;
-	struct config_descriptor *config_descriptors;
+	char *sysfs_dir;/*此设备对应的sysfs目录名称*/
+	void *descriptors;/*此设备的描述信息*/
+	size_t descriptors_len;/*描述信息长度*/
+	struct config_descriptor *config_descriptors;/*配置描述（其数目由descriptors中成员指定）*/
 	int active_config; /* cache val for !sysfs_available  */
 };
 
 struct linux_device_handle_priv {
-	int fd;
+	int fd;/*设备对应的fd*/
 	int fd_removed;
 	int fd_keep;
 	uint32_t caps;
@@ -182,6 +182,7 @@ static int dev_has_config0(struct libusb_device *dev)
 	return 0;
 }
 
+/*打开各设备对应的usbfd,例如/dev/bus/usb/001/001*/
 static int get_usbfs_fd(struct libusb_device *dev, mode_t mode, int silent)
 {
 	struct libusb_context *ctx = DEVICE_CTX(dev);
@@ -192,6 +193,7 @@ static int get_usbfs_fd(struct libusb_device *dev, mode_t mode, int silent)
 		snprintf(path, sizeof(path), USBDEV_PATH "/usbdev%u.%u",
 			dev->bus_number, dev->device_address);
 	else
+		/*打开各usb设备对应的字符设备*/
 		snprintf(path, sizeof(path), USB_DEVTMPFS_PATH "/%03u/%03u",
 			dev->bus_number, dev->device_address);
 
@@ -200,6 +202,7 @@ static int get_usbfs_fd(struct libusb_device *dev, mode_t mode, int silent)
 		return fd; /* Success */
 
 	if (errno == ENOENT) {
+		/*没有此文件处理*/
 		const long delay_ms = 10L;
 		const struct timespec delay_ts = { 0L, delay_ms * 1000L * 1000L };
 
@@ -255,24 +258,26 @@ static const char *find_usbfs_path(void)
 	struct dirent *entry;
 
 	path = USB_DEVTMPFS_PATH;
-	dir = opendir(path);
+	dir = opendir(path);/*打开目录*/
 	if (dir) {
 		while ((entry = readdir(dir))) {
 			if (entry->d_name[0] == '.')
+				/*跳过'.','..'目录*/
 				continue;
 
 			/* We assume if we find any files that it must be the right place */
-			break;
+			break;/*存在内容，退出*/
 		}
 
 		closedir(dir);
 
 		if (entry)
+			/*有内容，返回路径*/
 			return path;
 	}
 
 	/* look for /dev/usbdev*.* if the normal place fails */
-	path = USBDEV_PATH;
+	path = USBDEV_PATH;/*尝试这个路径*/
 	dir = opendir(path);
 	if (dir) {
 		while ((entry = readdir(dir))) {
@@ -311,6 +316,7 @@ static int get_kernel_version(struct libusb_context *ctx,
 	struct utsname uts;
 	int atoms;
 
+	/*取kernel版本*/
 	if (uname(&uts) < 0) {
 		usbi_err(ctx, "uname failed, errno=%d", errno);
 		return -1;
@@ -361,6 +367,7 @@ static int op_init(struct libusb_context *ctx)
 	if (get_kernel_version(ctx, &kversion) < 0)
 		return LIBUSB_ERROR_OTHER;
 
+	/*对kernel版本进行检查，需要大于2.6.32*/
 	if (!kernel_version_ge(&kversion, 2, 6, 32)) {
 		usbi_err(ctx, "kernel version is too old (reported as %d.%d.%d)",
 			 kversion.major, kversion.minor,
@@ -374,8 +381,10 @@ static int op_init(struct libusb_context *ctx)
 		return LIBUSB_ERROR_OTHER;
 	}
 
+	/*显示usbfs路径*/
 	usbi_dbg(ctx, "found usbfs at %s", usbfs_path);
 
+	/*依据kernel更新max_iso_packet_len*/
 	if (!max_iso_packet_len) {
 		if (kernel_version_ge(&kversion, 5, 2, 0))
 			max_iso_packet_len = 98304;
@@ -393,7 +402,7 @@ static int op_init(struct libusb_context *ctx)
 		r = statfs(SYSFS_MOUNT_PATH, &statfsbuf);
 		if (r == 0 && statfsbuf.f_type == SYSFS_MAGIC) {
 			usbi_dbg(ctx, "sysfs is available");
-			sysfs_available = 1;
+			sysfs_available = 1;/*sysfs有效*/
 		} else {
 			usbi_warn(ctx, "sysfs not mounted");
 			sysfs_available = 0;
@@ -410,6 +419,7 @@ static int op_init(struct libusb_context *ctx)
 		r = linux_start_event_monitor();
 	}
 	if (r == LIBUSB_SUCCESS) {
+		/*扫描现有设备并记录*/
 		r = linux_scan_devices(ctx);
 		if (r == LIBUSB_SUCCESS)
 			init_count++;
@@ -459,8 +469,10 @@ static int linux_scan_devices(struct libusb_context *ctx)
 	usbi_mutex_static_lock(&linux_hotplug_lock);
 
 #if defined(HAVE_LIBUDEV)
+	/*通过libudev扫描usb设备*/
 	ret = linux_udev_scan_devices(ctx);
 #else
+	/*采用sysfs/usbfs来进行扫描*/
 	ret = linux_default_scan_devices(ctx);
 #endif
 
@@ -474,6 +486,7 @@ static void op_hotplug_poll(void)
 	linux_hotplug_poll();
 }
 
+/*打开usb指定设备(sysfs_dir)的某一个属性（attr)对应的文件，返回对应的fd*/
 static int open_sysfs_attr(struct libusb_context *ctx,
 	const char *sysfs_dir, const char *attr)
 {
@@ -481,7 +494,7 @@ static int open_sysfs_attr(struct libusb_context *ctx,
 	int fd;
 
 	snprintf(filename, sizeof(filename), SYSFS_DEVICE_PATH "/%s/%s", sysfs_dir, attr);
-	fd = open(filename, O_RDONLY | O_CLOEXEC);
+	fd = open(filename, O_RDONLY | O_CLOEXEC);/*打开属性文件*/
 	if (fd < 0) {
 		if (errno == ENOENT) {
 			/* File doesn't exist. Assume the device has been
@@ -504,10 +517,12 @@ static int read_sysfs_attr(struct libusb_context *ctx,
 	ssize_t r;
 	int fd;
 
+	/*打开属性对应的fd*/
 	fd = open_sysfs_attr(ctx, sysfs_dir, attr);
 	if (fd < 0)
 		return fd;
 
+	/*读取属性对应内容*/
 	r = read(fd, buf, sizeof(buf) - 1);
 	if (r < 0) {
 		r = errno;
@@ -529,22 +544,26 @@ static int read_sysfs_attr(struct libusb_context *ctx,
 	/* The kernel does *not* NUL-terminate the string, but every attribute
 	 * should be terminated with a newline character. */
 	if (!isdigit(buf[0])) {
+		/*读取的内容不是数字，内容有误*/
 		usbi_err(ctx, "attribute %s doesn't have numeric value?", attr);
 		return LIBUSB_ERROR_IO;
 	} else if (buf[r - 1] != '\n') {
+		/*读取的内容没有换行，内容有误*/
 		usbi_warn(ctx, "attribute %s doesn't end with newline?", attr);
 	} else {
 		/* Remove the terminating newline character */
-		r--;
+		r--;/*移除换行符*/
 	}
 	buf[r] = '\0';
 
 	errno = 0;
-	value = strtol(buf, &endptr, 10);
+	value = strtol(buf, &endptr, 10);/*转换为数字*/
 	if (value < 0 || value > (long)max_value || errno) {
+		/*内容有误*/
 		usbi_err(ctx, "attribute %s contains an invalid value: '%s'", attr, buf);
 		return LIBUSB_ERROR_INVALID_PARAM;
 	} else if (*endptr != '\0') {
+		/*内容可能为含有小数点，忽略小数点*/
 		/* Consider the value to be valid if the remainder is a '.'
 		 * character followed by numbers.  This occurs, for example,
 		 * when reading the "speed" attribute for a low-speed device
@@ -569,7 +588,8 @@ static int sysfs_scan_device(struct libusb_context *ctx, const char *devname)
 	uint8_t busnum, devaddr;
 	int ret;
 
-	ret = linux_get_device_address(ctx, 0, &busnum, &devaddr, NULL, devname, -1);
+	/*取devname设备对应的busnum,devaddr*/
+	ret = linux_get_device_address(ctx, 0, &busnum, &devaddr, NULL, devname/*设备名称*/, -1);
 	if (ret != LIBUSB_SUCCESS)
 		return ret;
 
@@ -623,11 +643,13 @@ int linux_get_device_address(struct libusb_context *ctx, int detached,
 
 	usbi_dbg(ctx, "scan %s", sys_name);
 
+	/*读取busnum*/
 	r = read_sysfs_attr(ctx, sys_name, "busnum", UINT8_MAX, &sysfs_val);
 	if (r < 0)
 		return r;
 	*busnum = (uint8_t)sysfs_val;
 
+	/*取devnum*/
 	r = read_sysfs_attr(ctx, sys_name, "devnum", UINT8_MAX, &sysfs_val);
 	if (r < 0)
 		return r;
@@ -684,16 +706,18 @@ static int parse_config_descriptors(struct libusb_device *dev)
 	uint8_t *buffer;
 	size_t remaining;
 
-	device_desc = priv->descriptors;
-	num_configs = device_desc->bNumConfigurations;
+	device_desc = priv->descriptors;/*设备描述信息*/
+	num_configs = device_desc->bNumConfigurations;/*配置数目*/
 
 	if (num_configs == 0)
+		/*无配置*/
 		return 0;	/* no configurations? */
 
 	priv->config_descriptors = malloc(num_configs * sizeof(priv->config_descriptors[0]));
 	if (!priv->config_descriptors)
 		return LIBUSB_ERROR_NO_MEM;
 
+	/*配置描述信息包含在descriptors中，偏移量为LIBUSB_DT_DEVICE_SIZE*/
 	buffer = (uint8_t *)priv->descriptors + LIBUSB_DT_DEVICE_SIZE;
 	remaining = priv->descriptors_len - LIBUSB_DT_DEVICE_SIZE;
 
@@ -702,22 +726,27 @@ static int parse_config_descriptors(struct libusb_device *dev)
 		uint16_t config_len;
 
 		if (remaining < LIBUSB_DT_CONFIG_SIZE) {
+			/*读取的描述符与实际的配置数目不匹配*/
 			usbi_err(ctx, "short descriptor read %zu/%d",
 				 remaining, LIBUSB_DT_CONFIG_SIZE);
 			return LIBUSB_ERROR_IO;
 		}
 
+		/*指向当前的配置描述*/
 		config_desc = (struct usbi_configuration_descriptor *)buffer;
 		if (config_desc->bDescriptorType != LIBUSB_DT_CONFIG) {
+			/*配置类型必须为LIBUSB_DT_CONFIG*/
 			usbi_err(ctx, "descriptor is not a config desc (type 0x%02x)",
 				 config_desc->bDescriptorType);
 			return LIBUSB_ERROR_IO;
 		} else if (config_desc->bLength < LIBUSB_DT_CONFIG_SIZE) {
+			/*配置描述长度不符，小于结构体大小*/
 			usbi_err(ctx, "invalid descriptor bLength %u",
 				 config_desc->bLength);
 			return LIBUSB_ERROR_IO;
 		}
 
+		/*取配置长度，小端转cpu*/
 		config_len = libusb_le16_to_cpu(config_desc->wTotalLength);
 		if (config_len < LIBUSB_DT_CONFIG_SIZE) {
 			usbi_err(ctx, "invalid wTotalLength %u", config_len);
@@ -739,10 +768,12 @@ static int parse_config_descriptors(struct libusb_device *dev)
 					return offset;
 				sysfs_config_len = (uint16_t)offset;
 			} else {
+				/*了解config descrip长度*/
 				sysfs_config_len = (uint16_t)remaining;
 			}
 
 			if (config_len != sysfs_config_len) {
+				/*与实际宣称的长度不符，告警*/
 				usbi_warn(ctx, "config length mismatch wTotalLength %u real %u",
 					  config_len, sysfs_config_len);
 				config_len = sysfs_config_len;
@@ -831,7 +862,7 @@ static int op_get_config_descriptor(struct libusb_device *dev,
 
 	config = &priv->config_descriptors[config_index];
 	len = MIN(len, config->actual_len);
-	memcpy(buffer, config->desc, len);
+	memcpy(buffer, config->desc, len);/*填写描述符*/
 	return len;
 }
 
@@ -852,6 +883,7 @@ static int usbfs_get_active_config(struct libusb_device *dev, int fd)
 		.data = &active_config
 	};
 
+	/*？？？*/
 	r = ioctl(fd, IOCTL_USBFS_CONTROL, &ctrl);
 	if (r < 0) {
 		if (errno == ENODEV)
@@ -882,6 +914,7 @@ static int usbfs_get_active_config(struct libusb_device *dev, int fd)
 	return LIBUSB_SUCCESS;
 }
 
+/*通过fd获取usb设备对应的speed*/
 static enum libusb_speed usbfs_get_speed(struct libusb_context *ctx, int fd)
 {
 	int r;
@@ -915,12 +948,14 @@ static int initialize_device(struct libusb_device *dev, uint8_t busnum,
 	dev->device_address = devaddr;
 
 	if (sysfs_dir) {
+		/*给定sysfs情况*/
 		priv->sysfs_dir = strdup(sysfs_dir);
 		if (!priv->sysfs_dir)
 			return LIBUSB_ERROR_NO_MEM;
 
 		/* Note speed can contain 1.5, in this case read_sysfs_attr()
 		   will stop parsing at the '.' and return 1 */
+		/*读取speed属性*/
 		if (read_sysfs_attr(ctx, sysfs_dir, "speed", INT_MAX, &speed) == 0) {
 			switch (speed) {
 			case     1: dev->speed = LIBUSB_SPEED_LOW; break;
@@ -933,11 +968,13 @@ static int initialize_device(struct libusb_device *dev, uint8_t busnum,
 			}
 		}
 	} else if (wrapped_fd >= 0) {
+		/*给定fd情况*/
 		dev->speed = usbfs_get_speed(ctx, wrapped_fd);
 	}
 
 	/* cache descriptors in memory */
 	if (sysfs_dir) {
+		/*通过sysfs打开descriptors文件*/
 		fd = open_sysfs_attr(ctx, sysfs_dir, "descriptors");
 	} else if (wrapped_fd < 0) {
 		fd = get_usbfs_fd(dev, O_RDONLY, 0);
@@ -952,6 +989,7 @@ static int initialize_device(struct libusb_device *dev, uint8_t busnum,
 	if (fd < 0)
 		return fd;
 
+	/*读取描述信息，并存储在priv->descriptors中*/
 	alloc_len = 0;
 	do {
 		const size_t desc_read_length = 256;
@@ -960,6 +998,7 @@ static int initialize_device(struct libusb_device *dev, uint8_t busnum,
 		alloc_len += desc_read_length;
 		priv->descriptors = usbi_reallocf(priv->descriptors, alloc_len);
 		if (!priv->descriptors) {
+			/*申请内存失败*/
 			if (fd != wrapped_fd)
 				close(fd);
 			return LIBUSB_ERROR_NO_MEM;
@@ -968,7 +1007,7 @@ static int initialize_device(struct libusb_device *dev, uint8_t busnum,
 		/* usbfs has holes in the file */
 		if (!sysfs_dir)
 			memset(read_ptr, 0, desc_read_length);
-		nb = read(fd, read_ptr, desc_read_length);
+		nb = read(fd, read_ptr, desc_read_length);/*读取usb设备描述信息*/
 		if (nb < 0) {
 			usbi_err(ctx, "read descriptor failed, errno=%d", errno);
 			if (fd != wrapped_fd)
@@ -982,10 +1021,12 @@ static int initialize_device(struct libusb_device *dev, uint8_t busnum,
 		close(fd);
 
 	if (priv->descriptors_len < LIBUSB_DT_DEVICE_SIZE) {
+		/*描述信息长度过断，报错*/
 		usbi_err(ctx, "short descriptor read (%zu)", priv->descriptors_len);
 		return LIBUSB_ERROR_IO;
 	}
 
+	/*读取设备描述信息/设备配置描述信息*/
 	r = parse_config_descriptors(dev);
 	if (r < 0)
 		return r;
@@ -993,8 +1034,9 @@ static int initialize_device(struct libusb_device *dev, uint8_t busnum,
 	memcpy(&dev->device_descriptor, priv->descriptors, LIBUSB_DT_DEVICE_SIZE);
 
 	if (sysfs_dir) {
+		/*如果指定了sysfs_dir，则在这里返回*/
 		/* sysfs descriptors are in bus-endian format */
-		usbi_localize_device_descriptor(&dev->device_descriptor);
+		usbi_localize_device_descriptor(&dev->device_descriptor);/*完成字节序转化*/
 		return LIBUSB_SUCCESS;
 	}
 
@@ -1032,6 +1074,7 @@ static int linux_get_parent_info(struct libusb_device *dev, const char *sysfs_di
 
 	/* XXX -- can we figure out the topology when using usbfs? */
 	if (!sysfs_dir || !strncmp(sysfs_dir, "usb", 3)) {
+		/*sysfs_dir这类直接返回*/
 		/* either using usbfs or finding the parent of a root hub */
 		return LIBUSB_SUCCESS;
 	}
@@ -1107,6 +1150,7 @@ int linux_enumerate_device(struct libusb_context *ctx,
 
 	dev = usbi_get_device_by_session_id(ctx, session_id);
 	if (dev) {
+		/*设备已存在*/
 		/* device already exists in the context */
 		usbi_dbg(ctx, "session_id %lu already exists", session_id);
 		libusb_unref_device(dev);
@@ -1119,9 +1163,11 @@ int linux_enumerate_device(struct libusb_context *ctx,
 	if (!dev)
 		return LIBUSB_ERROR_NO_MEM;
 
-	r = initialize_device(dev, busnum, devaddr, sysfs_dir, -1);
+	/*初始化dev*/
+	r = initialize_device(dev, busnum, devaddr, sysfs_dir, -1/*不提供fd*/);
 	if (r < 0)
 		goto out;
+	/*设备描述信息校验*/
 	r = usbi_sanitize_device(dev);
 	if (r < 0)
 		goto out;
@@ -1133,6 +1179,7 @@ out:
 	if (r < 0)
 		libusb_unref_device(dev);
 	else
+		/*记录此设备*/
 		usbi_connect_device(dev);
 
 	return r;
@@ -1159,6 +1206,7 @@ void linux_device_disconnected(uint8_t busnum, uint8_t devaddr)
 	for_each_context(ctx) {
 		dev = usbi_get_device_by_session_id(ctx, session_id);
 		if (dev) {
+			/*移除此设备*/
 			usbi_disconnect_device(dev);
 			libusb_unref_device(dev);
 		} else {
@@ -1275,12 +1323,14 @@ static int usbfs_get_device_list(struct libusb_context *ctx)
 
 static int sysfs_get_device_list(struct libusb_context *ctx)
 {
+	/*打开usb设备目录*/
 	DIR *devices = opendir(SYSFS_DEVICE_PATH);
 	struct dirent *entry;
 	int num_devices = 0;
 	int num_enumerated = 0;
 
 	if (!devices) {
+		/*此目录不存在，退出*/
 		usbi_err(ctx, "opendir devices failed, errno=%d", errno);
 		return LIBUSB_ERROR_IO;
 	}
@@ -1288,10 +1338,12 @@ static int sysfs_get_device_list(struct libusb_context *ctx)
 	while ((entry = readdir(devices))) {
 		if ((!isdigit(entry->d_name[0]) && strncmp(entry->d_name, "usb", 3))
 		    || strchr(entry->d_name, ':'))
+			/*设备名称以非数字开头且不以usb开头或者设备名称中有':'的跳过*/
 			continue;
 
 		num_devices++;
 
+		/*扫描此设备*/
 		if (sysfs_scan_device(ctx, entry->d_name)) {
 			usbi_dbg(ctx, "failed to enumerate dir entry %s", entry->d_name);
 			continue;
@@ -1330,6 +1382,7 @@ static int initialize_handle(struct libusb_device_handle *handle, int fd)
 
 	hpriv->fd = fd;
 
+	/*取此设备对应的capability*/
 	r = ioctl(fd, IOCTL_USBFS_GET_CAPABILITIES, &hpriv->caps);
 	if (r < 0) {
 		if (errno == ENOTTY)
@@ -1704,7 +1757,8 @@ static int op_kernel_driver_active(struct libusb_device_handle *handle,
 	struct usbfs_getdriver getdrv;
 	int r;
 
-	getdrv.interface = interface;
+	getdrv.interface = interface;/*接口编号*/
+	/*取驱动名称*/
 	r = ioctl(fd, IOCTL_USBFS_GETDRIVER, &getdrv);
 	if (r < 0) {
 		if (errno == ENODATA)
@@ -1716,7 +1770,7 @@ static int op_kernel_driver_active(struct libusb_device_handle *handle,
 		return LIBUSB_ERROR_OTHER;
 	}
 
-	return strcmp(getdrv.driver, "usbfs") != 0;
+	return strcmp(getdrv.driver, "usbfs") != 0;/*返回的驱动需要是usbfs*/
 }
 
 static int op_detach_kernel_driver(struct libusb_device_handle *handle,
@@ -2765,6 +2819,7 @@ out:
 	return r;
 }
 
+/*linux usb接口*/
 const struct usbi_os_backend usbi_backend = {
 	.name = "Linux usbfs",
 	.caps = USBI_CAP_HAS_HID_ACCESS|USBI_CAP_SUPPORTS_DETACH_KERNEL_DRIVER,
@@ -2777,7 +2832,7 @@ const struct usbi_os_backend usbi_backend = {
 	.get_config_descriptor_by_value = op_get_config_descriptor_by_value,
 
 	.wrap_sys_device = op_wrap_sys_device,
-	.open = op_open,
+	.open = op_open,/*打开指定usb设备,kernel为每个usb设备提供了char设备*/
 	.close = op_close,
 	.get_configuration = op_get_configuration,
 	.set_configuration = op_set_configuration,

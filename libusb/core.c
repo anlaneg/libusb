@@ -716,7 +716,7 @@ struct libusb_device *usbi_alloc_device(struct libusb_context *ctx,
 	usbi_atomic_store(&dev->refcnt, 1);
 
 	dev->ctx = ctx;
-	dev->session_data = session_id;
+	dev->session_data = session_id;/*设置session id */
 	dev->speed = LIBUSB_SPEED_UNKNOWN;
 
 	if (!libusb_has_capability(LIBUSB_CAP_HAS_HOTPLUG))
@@ -745,9 +745,10 @@ void usbi_disconnect_device(struct libusb_device *dev)
 	usbi_atomic_store(&dev->attached, 0);
 
 	usbi_mutex_lock(&ctx->usb_devs_lock);
-	list_del(&dev->list);
+	list_del(&dev->list);/*自list中移除*/
 	usbi_mutex_unlock(&ctx->usb_devs_lock);
 
+	/*触发通知，此工dev设备移除*/
 	usbi_hotplug_notification(ctx, dev, LIBUSB_HOTPLUG_EVENT_DEVICE_LEFT);
 }
 
@@ -760,15 +761,18 @@ int usbi_sanitize_device(struct libusb_device *dev)
 
 	if (dev->device_descriptor.bLength != LIBUSB_DT_DEVICE_SIZE ||
 	    dev->device_descriptor.bDescriptorType != LIBUSB_DT_DEVICE) {
+		/*描述长度及类型校验*/
 		usbi_err(DEVICE_CTX(dev), "invalid device descriptor");
 		return LIBUSB_ERROR_IO;
 	}
 
 	num_configurations = dev->device_descriptor.bNumConfigurations;
 	if (num_configurations > USB_MAXCONFIG) {
+		/*配置数目不得超过最大值*/
 		usbi_err(DEVICE_CTX(dev), "too many configurations");
 		return LIBUSB_ERROR_IO;
 	} else if (0 == num_configurations) {
+		/*零配置也不行*/
 		usbi_dbg(DEVICE_CTX(dev), "zero configurations, maybe an unauthorized device");
 	}
 
@@ -787,13 +791,14 @@ struct libusb_device *usbi_get_device_by_session_id(struct libusb_context *ctx,
 	usbi_mutex_lock(&ctx->usb_devs_lock);
 	for_each_device(ctx, dev) {
 		if (dev->session_data == session_id) {
+			/*session id匹配，增加引用，并返回此设备*/
 			ret = libusb_ref_device(dev);
 			break;
 		}
 	}
 	usbi_mutex_unlock(&ctx->usb_devs_lock);
 
-	return ret;
+	return ret;/*返回查询到的设备*/
 }
 
 /** @ingroup libusb_dev
@@ -836,9 +841,11 @@ ssize_t API_EXPORTED libusb_get_device_list(libusb_context *ctx,
 		struct libusb_device *dev;
 
 		if (usbi_backend.hotplug_poll)
+			/*对设备进行poll*/
 			usbi_backend.hotplug_poll();
 
 		usbi_mutex_lock(&ctx->usb_devs_lock);
+		/*遍历并填充所有设备到discdevs*/
 		for_each_device(ctx, dev) {
 			discdevs = discovered_devs_append(discdevs, dev);
 
@@ -866,6 +873,7 @@ ssize_t API_EXPORTED libusb_get_device_list(libusb_context *ctx,
 		goto out;
 	}
 
+	/*初始化ret*/
 	ret[len] = NULL;
 	for (i = 0; i < len; i++) {
 		struct libusb_device *dev = discdevs->devices[i];
@@ -958,8 +966,9 @@ int API_EXPORTED libusb_get_port_numbers(libusb_device *dev,
 			return LIBUSB_ERROR_OVERFLOW;
 		}
 		port_numbers[i] = dev->port_number;
-		dev = dev->parent_dev;
+		dev = dev->parent_dev;/*父设备*/
 	}
+	/*填充port_numbers*/
 	if (i < port_numbers_len)
 		memmove(port_numbers, &port_numbers[i], port_numbers_len - i);
 	return port_numbers_len - i;
@@ -1418,8 +1427,10 @@ int API_EXPORTED libusb_open(libusb_device *dev,
 
 	usbi_mutex_init(&_dev_handle->lock);
 
+	/*记录要操作的设备*/
 	_dev_handle->dev = libusb_ref_device(dev);
 
+	/*打开此设备*/
 	r = usbi_backend.open(_dev_handle);
 	if (r < 0) {
 		usbi_dbg(DEVICE_CTX(dev), "open %d.%d returns %d", dev->bus_number, dev->device_address, r);
@@ -1467,18 +1478,20 @@ libusb_device_handle * LIBUSB_CALL libusb_open_device_with_vid_pid(
 	if (libusb_get_device_list(ctx, &devs) < 0)
 		return NULL;
 
+	/*查找函数指定的设备*/
 	while ((dev = devs[i++]) != NULL) {
 		struct libusb_device_descriptor desc;
 		r = libusb_get_device_descriptor(dev, &desc);
 		if (r < 0)
 			goto out;
 		if (desc.idVendor == vendor_id && desc.idProduct == product_id) {
-			found = dev;
+			found = dev;/*匹配*/
 			break;
 		}
 	}
 
 	if (found) {
+		/*打开此设备，创建dev_handle*/
 		r = libusb_open(found, &dev_handle);
 		if (r < 0)
 			dev_handle = NULL;
@@ -1774,6 +1787,7 @@ int API_EXPORTED libusb_claim_interface(libusb_device_handle *dev_handle,
 
 	usbi_dbg(HANDLE_CTX(dev_handle), "interface %d", interface_number);
 	if (interface_number < 0 || interface_number >= USB_MAXINTERFACES)
+		/*interface检查*/
 		return LIBUSB_ERROR_INVALID_PARAM;
 
 	if (!usbi_atomic_load(&dev_handle->dev->attached))
@@ -2084,12 +2098,14 @@ int API_EXPORTED libusb_kernel_driver_active(libusb_device_handle *dev_handle,
 	usbi_dbg(HANDLE_CTX(dev_handle), "interface %d", interface_number);
 
 	if (interface_number < 0 || interface_number >= USB_MAXINTERFACES)
+		/*接口号无效*/
 		return LIBUSB_ERROR_INVALID_PARAM;
 
 	if (!usbi_atomic_load(&dev_handle->dev->attached))
 		return LIBUSB_ERROR_NO_DEVICE;
 
 	if (usbi_backend.kernel_driver_active)
+		/*active驱动*/
 		return usbi_backend.kernel_driver_active(dev_handle, (uint8_t)interface_number);
 	else
 		return LIBUSB_ERROR_NOT_SUPPORTED;
@@ -2482,6 +2498,7 @@ int API_EXPORTED libusb_init_context(libusb_context **ctx, const struct libusb_i
 	list_add(&_ctx->list, &active_contexts_list);
 	usbi_mutex_static_unlock(&active_contexts_lock);
 
+	/*后端初始化*/
 	if (usbi_backend.init) {
 		r = usbi_backend.init(_ctx);
 		if (r)
@@ -2614,6 +2631,7 @@ int API_EXPORTED libusb_has_capability(uint32_t capability)
 	case LIBUSB_CAP_HAS_CAPABILITY:
 		return 1;
 	case LIBUSB_CAP_HAS_HOTPLUG:
+		/*检查是否提供get_device_list回调*/
 		return !(usbi_backend.get_device_list);
 	case LIBUSB_CAP_HAS_HID_ACCESS:
 		return (usbi_backend.caps & USBI_CAP_HAS_HID_ACCESS);

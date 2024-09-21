@@ -500,6 +500,7 @@ static int get_active_config_descriptor(struct libusb_device *dev,
 static int get_config_descriptor(struct libusb_device *dev, uint8_t config_idx,
 	uint8_t *buffer, size_t size)
 {
+	/*读配置描述符*/
 	int r = usbi_backend.get_config_descriptor(dev, config_idx, buffer, size);
 
 	if (r < 0)
@@ -531,6 +532,7 @@ static int get_config_descriptor(struct libusb_device *dev, uint8_t config_idx,
 int API_EXPORTED libusb_get_device_descriptor(libusb_device *dev,
 	struct libusb_device_descriptor *desc)
 {
+	/*取描述信息*/
 	usbi_dbg(DEVICE_CTX(dev), " ");
 	static_assert(sizeof(dev->device_descriptor) == LIBUSB_DT_DEVICE_SIZE,
 		      "struct libusb_device_descriptor is not expected size");
