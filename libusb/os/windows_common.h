@@ -131,6 +131,7 @@ typedef LONG USBD_STATUS;
 
 #define USBD_SUCCESS(Status)		((USBD_STATUS)(Status) >= 0)
 
+#define USBD_STATUS_STALL_PID		((USBD_STATUS)0xC0000004L)
 #define USBD_STATUS_ENDPOINT_HALTED	((USBD_STATUS)0xC0000030L)
 #define USBD_STATUS_TIMEOUT		((USBD_STATUS)0xC0006000L)
 #define USBD_STATUS_DEVICE_GONE		((USBD_STATUS)0xC0007000L)
@@ -341,7 +342,6 @@ struct windows_backend {
 	int (*cancel_transfer)(struct usbi_transfer *itransfer);
 	void (*clear_transfer_priv)(struct usbi_transfer *itransfer);
 	enum libusb_transfer_status (*copy_transfer_data)(struct usbi_transfer *itransfer, DWORD length);
-	int (*set_option)(struct libusb_context *ctx, enum libusb_option option, va_list args);
 };
 
 struct windows_context_priv {

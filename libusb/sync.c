@@ -22,6 +22,7 @@
 
 #include "libusbi.h"
 
+#include <assert.h>
 #include <string.h>
 
 /**
@@ -34,10 +35,15 @@
 
 static void LIBUSB_CALL sync_transfer_cb(struct libusb_transfer *transfer)
 {
+	usbi_dbg(TRANSFER_CTX(transfer), "actual_length=%d", transfer->actual_length);
+
 	int *completed = transfer->user_data;
 	*completed = 1;
-	usbi_dbg(TRANSFER_CTX(transfer), "actual_length=%d", transfer->actual_length);
-	/* caller interprets result and frees transfer */
+	/*
+	 * Right after setting 'completed', another thread might free the transfer, so don't
+	 * access it beyond this point. The instantiating thread (not necessarily the
+	 * current one) interprets the result and frees the transfer.
+	 */
 }
 
 static void sync_transfer_wait_for_completion(struct libusb_transfer *transfer)
@@ -134,7 +140,7 @@ int API_EXPORTED libusb_control_transfer(libusb_device_handle *dev_handle,
 
 	if ((bmRequestType & LIBUSB_ENDPOINT_DIR_MASK) == LIBUSB_ENDPOINT_IN)
 		memcpy(data, libusb_control_transfer_get_data(transfer),
-			transfer->actual_length);
+			(size_t)transfer->actual_length);
 
 	switch (transfer->status) {
 	case LIBUSB_TRANSFER_COMPLETED:
@@ -193,8 +199,10 @@ static int do_sync_bulk_transfer(struct libusb_device_handle *dev_handle,
 
 	sync_transfer_wait_for_completion(transfer);
 
-	if (transferred)
+	if (transferred) {
+		assert(transfer->actual_length >= 0);
 		*transferred = transfer->actual_length;
+	}
 
 	switch (transfer->status) {
 	case LIBUSB_TRANSFER_COMPLETED:
@@ -307,9 +315,9 @@ int API_EXPORTED libusb_bulk_transfer(libusb_device_handle *dev_handle,
  * \param length for bulk writes, the number of bytes from data to be sent. for
  * bulk reads, the maximum number of bytes to receive into the data buffer.
  * \param transferred output location for the number of bytes actually
- * transferred. Since version 1.0.21 (\ref LIBUSB_API_VERSION >= 0x01000105),
- * it is legal to pass a NULL pointer if you do not wish to receive this
- * information.
+ * transferred. Will never be negative. Since version 1.0.21
+ * (\ref LIBUSB_API_VERSION >= 0x01000105), it is legal to pass a NULL
+ * pointer if you do not wish to receive this information.
  * \param timeout timeout (in milliseconds) that this function should wait
  * before giving up due to no response being received. For an unlimited
  * timeout, use value 0.
